@@ -82,7 +82,7 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
                     return;
                 } else {
                     if (OperatorName.SHOW_TEXT.equals(operator.getName())) {
-                        patchShowTextOperation(contentStreamWriter, operatorText);
+                        patchShowTextOperation(contentStreamWriter, operatorText, operands);
                         return;
                     } else if (OperatorName.SHOW_TEXT_ADJUSTED.equals(operator.getName())) {
                         if (operands.toString().contains("an be applied (shi")) {
@@ -90,12 +90,8 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
                             System.err.println(operands);
                             patchShowTextAdjustedOperation(contentStreamWriter, operatorText, operands);
                         } else {
-                            //System.err.println(operatorString);
-                            //System.err.println(operands);
                             patchShowTextAdjustedOperation(contentStreamWriter, operatorText, operands);
                         }
-                        // Remove at all for now
-                        // TODO: fix me
                         return;
                     } else {
                         // Remove at all for now
@@ -128,7 +124,7 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
                     TextPosition text = texts.get(textIndex);
                     if (matchesRegion(text)) {
                         // TODO: correct?
-                        offset -= (text.getEndX() - text.getX()) * 100;
+                        offset -= (text.getWidth()) * 100;
                         from++;
                         textIndex++;
                     } else {
@@ -155,33 +151,15 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
             }
         }
 
-        System.err.println("New: " + newOperandsArray);
+        System.err.println("Old: " + operands);
         List<COSBase> newOperands = Collections.singletonList(new COSArray(newOperandsArray));
+        System.err.println("New: " + newOperands);
         super.write(contentStreamWriter, Operator.getOperator(OperatorName.SHOW_TEXT_ADJUSTED), newOperands);
     }
 
-    protected void patchShowTextOperation(ContentStreamWriter contentStreamWriter, List<TextPosition> operatorText) throws IOException {
-        for (int i = 0; i < operatorText.size(); ) {
-            if (!matchesRegion(operatorText.get(i))) {
-                int to = i;
-                ByteArrayOutputStream textRange = new ByteArrayOutputStream();
-                while (to < operatorText.size() && !matchesRegion(operatorText.get(to))) {
-                    // TODO: multi-byte fonts
-                    textRange.write(operatorText.get(to).getCharacterCodes()[0]);
-                    to++;
-                }
-
-                //System.err.println(i + " " + to);
-                i = to;
-
-                // TODO: offset
-                List<COSBase> operands = Collections.singletonList(new COSString(textRange.toByteArray()));
-                System.err.println("New: " + operands);
-                super.write(contentStreamWriter, Operator.getOperator(OperatorName.SHOW_TEXT), operands);
-            } else {
-                i++;
-            }
-        }
+    protected void patchShowTextOperation(ContentStreamWriter contentStreamWriter, List<TextPosition> operatorText, List<COSBase> operands) throws IOException {
+        List<COSBase> newOperands = Collections.singletonList(new COSArray(operands));
+        patchShowTextAdjustedOperation(contentStreamWriter, operatorText, newOperands);
     }
 
     @Override
