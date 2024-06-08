@@ -2,30 +2,33 @@ package org.apache.pdfbox.text;
 
 import java.awt.*;
 import java.awt.geom.Rectangle2D;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.contentstream.operator.Operator;
+import org.apache.pdfbox.contentstream.operator.OperatorName;
 import org.apache.pdfbox.cos.COSBase;
+import org.apache.pdfbox.cos.COSString;
 import org.apache.pdfbox.pdfwriter.ContentStreamWriter;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
-import org.apache.pdfbox.pdmodel.font.PDFont;
-import org.apache.pdfbox.util.Matrix;
-import org.apache.pdfbox.util.Vector;
 
 public class PDFTextStripperByRegion extends PdfContentStreamEditor {
     private static final List<String> TEXT_SHOWING_OPERATORS = Arrays.asList("Tj", "'", "\"", "TJ");
 
+    public static final boolean DEBUG = true;
+
     private final PDDocument document;
     private final List<Rectangle2D> regions = new ArrayList<>();
 
-    private boolean operatorHasTextToBeRemoved = false;
+    private final List<TextPosition> operatorText = new ArrayList<>();
 
     public PDFTextStripperByRegion(PDDocument document) {
         super(document);
@@ -37,27 +40,25 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
         regions.add(rect);
     }
 
+    protected boolean matchesRegion(TextPosition text) {
+        for (Rectangle2D rect : regions) {
+            if (rect.contains(text.getX(), text.getPageHeight() - text.getY())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     protected void nextOperation(Operator operator, List<COSBase> operands) {
-        operatorHasTextToBeRemoved = false;
+        operatorText.clear();
 
         super.nextOperation(operator, operands);
     }
 
     @Override
-    protected void showGlyph(Matrix textRenderingMatrix, PDFont font, int code, Vector displacement)
-            throws IOException {
-        //new Exception().printStackTrace();
-        super.showGlyph(textRenderingMatrix, font, code, displacement);
-    }
-
-    @Override
     protected void processTextPosition(TextPosition text) {
-        regions.forEach((rect) -> {
-            if (rect.contains(text.getX(), text.getPageHeight() - text.getY())) {
-                operatorHasTextToBeRemoved = true;
-            }
-        });
+        operatorText.add(text);
 
         super.processTextPosition(text);
     }
@@ -66,16 +67,77 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
     protected void write(ContentStreamWriter contentStreamWriter, Operator operator, List<COSBase> operands) throws IOException {
         String operatorString = operator.getName();
 
-        if (TEXT_SHOWING_OPERATORS.contains(operatorString) && operatorHasTextToBeRemoved) {
-            return;
+        if (TEXT_SHOWING_OPERATORS.contains(operatorString)) {
+            boolean operatorHasTextToBeRemoved = false;
+            boolean operatorHasTextToBeKept = false;
+
+            for (TextPosition text : operatorText) {
+                boolean textToBeRemoved = false;
+
+                for (Rectangle2D rect : regions) {
+                    if (rect.contains(text.getX(), text.getPageHeight() - text.getY())) {
+                        textToBeRemoved = true;
+                    }
+                };
+
+                operatorHasTextToBeRemoved |= textToBeRemoved;
+                operatorHasTextToBeKept |= !textToBeRemoved;
+            };
+
+            if (operatorHasTextToBeRemoved) {
+                if (!operatorHasTextToBeKept) {
+                    // Remove at all
+                    return;
+                } else {
+                    if (OperatorName.SHOW_TEXT.equals(operator.getName())) {
+                        System.err.println(operatorString);
+                        System.err.println(operands);
+                        patchShowTextOperation(contentStreamWriter, operatorText);
+                        return;
+                    } else {
+                        // Remove at all for now
+                        // TODO: fix me
+                        return;
+                    }
+                }
+            }
         }
 
         super.write(contentStreamWriter, operator, operands);
     }
 
+    protected void patchShowTextOperation(ContentStreamWriter contentStreamWriter, List<TextPosition> operatorText) throws IOException {
+        // TODO: offset
+        for (int i = 0; i < operatorText.size(); ) {
+            if (!matchesRegion(operatorText.get(i))) {
+                int to = i;
+                ByteArrayOutputStream textRange = new ByteArrayOutputStream();
+                while (to < operatorText.size() && !matchesRegion(operatorText.get(to))) {
+                    // TODO: multi-byte fonts
+                    textRange.write(operatorText.get(to).getCharacterCodes()[0]);
+                    to++;
+                }
+
+                //System.err.println(i + " " + to);
+                i = to;
+
+                // TODO: offset
+                List<COSBase> operands = Collections.singletonList(new COSString(textRange.toByteArray()));
+                System.err.println("New: " + operands);
+                super.write(contentStreamWriter, Operator.getOperator(OperatorName.SHOW_TEXT), operands);
+            } else {
+                i++;
+            }
+        }
+    }
+
     @Override
     public void processPage(PDPage page) throws IOException {
         super.processPage(page);
+
+        if (!DEBUG) {
+            return;
+        }
 
         PDPageContentStream pageContentStream = new PDPageContentStream(this.document, page, PDPageContentStream.AppendMode.APPEND, true);
         pageContentStream.setStrokingColor(Color.RED);
@@ -88,6 +150,12 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
         }
         pageContentStream.stroke();
         pageContentStream.close();
+    }
+
+    // Tj - ShowText
+    @Override
+    protected void showText(byte[] string) throws IOException {
+        super.showText(string);
     }
 
     public static void main(String[] args) throws IOException {
