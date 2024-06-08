@@ -1,6 +1,5 @@
 package org.apache.pdfbox.text;
 
-import org.apache.pdfbox.contentstream.PDFGraphicsStreamEngine;
 import org.apache.pdfbox.contentstream.operator.Operator;
 import org.apache.pdfbox.cos.COSBase;
 import org.apache.pdfbox.cos.COSName;
@@ -9,9 +8,7 @@ import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.common.PDStream;
 import org.apache.pdfbox.pdmodel.graphics.form.PDFormXObject;
-import org.apache.pdfbox.pdmodel.graphics.image.PDImage;
 
-import java.awt.geom.Point2D;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.List;
@@ -36,7 +33,6 @@ import java.util.List;
 public class PdfContentStreamEditor extends PDFTextStripper {
 
     private final PDDocument document;
-    private OutputStream replacementStream = null;
     private ContentStreamWriter replacement = null;
     private boolean inOperator = false;
 
@@ -55,7 +51,7 @@ public class PdfContentStreamEditor extends PDFTextStripper {
      * </p>
      */
     protected void nextOperation(Operator operator, List<COSBase> operands) {
-
+        // Do nothing
     }
 
     /**
@@ -78,12 +74,12 @@ public class PdfContentStreamEditor extends PDFTextStripper {
     @Override
     public void processPage(PDPage page) throws IOException {
         PDStream stream = new PDStream(document);
+        OutputStream replacementStream;
         replacement = new ContentStreamWriter(replacementStream = stream.createOutputStream(COSName.FLATE_DECODE));
         super.processPage(page);
         replacementStream.close();
         page.setContents(stream);
         replacement = null;
-        replacementStream = null;
     }
 
     // PDFStreamEngine overrides to allow editing
