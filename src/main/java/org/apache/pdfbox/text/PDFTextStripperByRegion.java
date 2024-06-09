@@ -1,8 +1,8 @@
 package org.apache.pdfbox.text;
 
 import java.awt.*;
-import java.awt.geom.AffineTransform;
 import java.awt.geom.Rectangle2D;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
@@ -22,15 +22,24 @@ import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.apache.pdfbox.util.Matrix;
 
+import javax.imageio.ImageIO;
+
 public class PDFTextStripperByRegion extends PdfContentStreamEditor {
     private static final List<String> TEXT_SHOWING_OPERATORS = Arrays.asList("Tj", "'", "\"", "TJ");
 
-    public static final boolean DEBUG = true;
+    private static final boolean DEBUG = true;
+    private static final Color IMAGE_FILL_COLOR = Color.BLUE;
 
     private final PDDocument document;
-    private final List<RectangleAndPage> regions = new ArrayList<>();
 
+    // State
+    private final List<RectangleAndPage> regions = new ArrayList<>();
     private final List<TextPosition> operatorText = new ArrayList<>();
+
+    private COSName intersectingImageName = null;
+    private BufferedImage intersectingImage = null;
+
+    // Debug
     private final List<RectangleAndPage> imageLocations = new ArrayList<>();
 
     public PDFTextStripperByRegion(PDDocument document) {
@@ -47,12 +56,12 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
 
     protected boolean matchesRegion(TextPosition text) {
         for (RectangleAndPage location : regions) {
-            if (location.page != getCurrentPageNo()) {
+            if (location.page != getCurrentPageNo() - 1) {
                 continue;
             }
 
             Rectangle2D rect = location.rectangle;
-            if (rect.contains(text.getX(), text.getPageHeight() - text.getY())) {
+            if (rect.intersects(text.getX(), text.getPageHeight() - text.getY(), text.getWidth(), text.getHeight())) {
                 return true;
             }
             if (rect.contains(text.getX() + text.getWidth(), text.getPageHeight() - text.getY())) {
@@ -62,9 +71,48 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
         return false;
     }
 
+    protected boolean matchesRegion(Rectangle2D box) {
+        for (RectangleAndPage location : regions) {
+            if (location.page != getCurrentPageNo() - 1) {
+                continue;
+            }
+
+            Rectangle2D rect = location.rectangle;
+            if (rect.intersects(box.getX(), box.getY(), box.getWidth(), box.getHeight())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    protected void clearImage(Rectangle2D box, BufferedImage image) {
+        for (RectangleAndPage location : regions) {
+            if (location.page != getCurrentPageNo() - 1) {
+                continue;
+            }
+
+            Rectangle2D rect = location.rectangle;
+            Rectangle2D intersection = rect.createIntersection(box);
+            if (intersection.getWidth() > 0 && intersection.getHeight() > 0) {
+                double scaleX = box.getWidth() / image.getWidth();
+                double scaleY = box.getHeight() / image.getHeight();
+
+                double ix = (intersection.getX() - box.getX()) / scaleX;
+                double iy = (intersection.getY() - box.getY()) / scaleY;
+                double iw = intersection.getWidth() / scaleX;
+                double ih = intersection.getHeight() / scaleY;
+
+                Graphics2D graphics = image.createGraphics();
+                graphics.clearRect((int) ix, (int) iy, (int) iw, (int) ih);
+            }
+        }
+    }
+
     @Override
     protected void nextOperation(Operator operator, List<COSBase> operands) {
         operatorText.clear();
+        intersectingImageName = null;
+        intersectingImage = null;
 
         super.nextOperation(operator, operands);
     }
@@ -109,6 +157,26 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
                 }
             }
         }
+
+        if (OperatorName.DRAW_OBJECT.equals(operator.getName())) {
+            if (intersectingImageName != null) {
+                patchDrawObjectImage(contentStreamWriter, operator, operands);
+                return;
+            }
+        }
+
+        super.write(contentStreamWriter, operator, operands);
+    }
+
+    protected void patchDrawObjectImage(ContentStreamWriter contentStreamWriter, Operator operator, List<COSBase> operands) throws IOException {
+        PDImageXObject imageXObject = (PDImageXObject) getResources().getXObject(intersectingImageName);
+        BufferedImage image = imageXObject.getImage();
+
+        // TODO: assign new key since the image might be used in several places
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", outputStream);
+        PDImageXObject newImageXObject = PDImageXObject.createFromByteArray(document, outputStream.toByteArray(), intersectingImageName.getName());
+        getResources().put(intersectingImageName, newImageXObject);
 
         super.write(contentStreamWriter, operator, operands);
     }
@@ -159,9 +227,7 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
             }
         }
 
-        //System.err.println("Old: " + operands);
         List<COSBase> newOperands = Collections.singletonList(new COSArray(newOperandsArray));
-        //System.err.println("New: " + newOperands);
         super.write(contentStreamWriter, Operator.getOperator(OperatorName.SHOW_TEXT_ADJUSTED), newOperands);
     }
 
@@ -171,17 +237,23 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
     }
 
     // See org.apache.pdfbox.rendering.PageDrawer#drawImage
-    public void drawImage(PDImageXObject xObject) {
-        System.err.println(xObject.getClass());
-        System.err.println(xObject);
-
+    public void drawImage(PDImageXObject xObject, COSName name) throws IOException {
         Matrix ctm = getGraphicsState().getCurrentTransformationMatrix();
-        AffineTransform at = ctm.createAffineTransform();
 
         float x = ctm.getTranslateX();
         float y = ctm.getTranslateY();
 
-        imageLocations.add(new RectangleAndPage(getCurrentPageNo(), new Rectangle2D.Float(x, y, xObject.getWidth(), xObject.getHeight())));
+        float scaleX = ctm.getScaleX();
+        float scaleY = ctm.getScaleY();
+
+        Rectangle2D imageLocation = new Rectangle2D.Float(x, y, scaleX, scaleY);
+        if (matchesRegion(imageLocation)) {
+            BufferedImage image = xObject.getImage();
+            intersectingImageName = name;
+            intersectingImage = image.getSubimage(0, 0, image.getWidth(), image.getHeight());
+            clearImage(imageLocation, intersectingImage);
+        }
+        imageLocations.add(new RectangleAndPage(getCurrentPageNo() - 1, imageLocation));
     }
 
     @Override
@@ -195,7 +267,7 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
         PDPageContentStream pageContentStream = new PDPageContentStream(this.document, page, PDPageContentStream.AppendMode.APPEND, true);
         pageContentStream.setStrokingColor(Color.RED);
         for (RectangleAndPage location : regions) {
-            if (getCurrentPageNo() != location.page) {
+            if (getCurrentPageNo() - 1 != location.page) {
                 continue;
             }
             Rectangle2D region = location.rectangle;
@@ -209,7 +281,7 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
 
         pageContentStream.setStrokingColor(Color.GREEN);
         for (RectangleAndPage imageLocation : imageLocations) {
-            if (getCurrentPageNo() != imageLocation.page) {
+            if (getCurrentPageNo() - 1 != imageLocation.page) {
                 continue;
             }
             Rectangle2D region = imageLocation.rectangle;
@@ -229,7 +301,8 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
 
         PDFTextStripperByRegion stripper = new PDFTextStripperByRegion(document);
         for (int i = 0; i < document.getNumberOfPages(); i++) {
-            stripper.addRegion(i, new Rectangle2D.Float(100, 100, 200, 200));
+            PDPage page = document.getPage(i);
+            stripper.addRegion(i, new Rectangle2D.Float(100, 100, page.getMediaBox().getWidth() - 200, page.getMediaBox().getHeight() - 200));
         }
         stripper.getText(document);
 

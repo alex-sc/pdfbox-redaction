@@ -32,7 +32,7 @@ public class DrawObjectExt extends DrawObject {
         PDFStreamEngine context = getContext();
         PDXObject pdxObject = context.getResources().getXObject(name);
         if (pdxObject instanceof PDImageXObject) {
-            ((PDFTextStripperByRegion) context).drawImage((PDImageXObject) pdxObject);
+            ((PDFTextStripperByRegion) context).drawImage((PDImageXObject) pdxObject, name);
         } else {
             super.process(operator, arguments);
         }
