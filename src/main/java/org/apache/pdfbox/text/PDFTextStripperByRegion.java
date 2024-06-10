@@ -97,10 +97,12 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
                 double scaleX = box.getWidth() / image.getWidth();
                 double scaleY = box.getHeight() / image.getHeight();
 
-                double ix = (intersection.getX() - box.getX()) / scaleX;
-                double iy = (intersection.getY() - box.getY()) / scaleY;
                 double iw = intersection.getWidth() / scaleX;
                 double ih = intersection.getHeight() / scaleY;
+                double ix = (intersection.getX() - box.getX()) / scaleX;
+                double iy = (intersection.getY() - box.getY()) / scaleX;
+                // Inverse the vertical coordinate
+                iy = image.getHeight() - ih - iy;
 
                 Graphics2D graphics = image.createGraphics();
                 graphics.clearRect((int) ix, (int) iy, (int) iw, (int) ih);
