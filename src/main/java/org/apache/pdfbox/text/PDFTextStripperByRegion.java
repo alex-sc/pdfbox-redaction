@@ -3,9 +3,7 @@ package org.apache.pdfbox.text;
 import java.awt.*;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -19,6 +17,7 @@ import org.apache.pdfbox.pdfwriter.ContentStreamWriter;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.font.PDFont;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.apache.pdfbox.util.Matrix;
 
@@ -195,8 +194,14 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
                 offset += ((COSNumber) operand).floatValue();
             } else if (operand instanceof COSString) {
                 byte[] textBytes = ((COSString) operand).getBytes();
-                // TODO: multibyte
-                int numberOfCharacters = textBytes.length;
+                PDFont font = getGraphicsState().getTextState().getFont();
+                InputStream in = new ByteArrayInputStream(textBytes);
+                int numberOfCharacters = 0;
+                while (in.available() > 0) {
+                    font.readCode(in);
+                    numberOfCharacters++;
+                }
+                int bytesPerCharacter = textBytes.length / numberOfCharacters;
 
                 int from = 0;
                 while (from < numberOfCharacters) {
@@ -215,8 +220,13 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
                         ByteArrayOutputStream textRange = new ByteArrayOutputStream();
                         int to = from;
                         while (to < numberOfCharacters && !matchesRegion(texts.get(textIndex))) {
-                            // TODO: multi-byte fonts
-                            textRange.write(operatorText.get(textIndex).getCharacterCodes()[0]);
+                            int characterCode = operatorText.get(textIndex).getCharacterCodes()[0];
+                            byte[] charBytes = new byte[bytesPerCharacter];
+                            for (int i = 0; i < bytesPerCharacter; i++) {
+                                charBytes[bytesPerCharacter - 1 - i] = (byte) ((characterCode % 256) & 0xff);
+                                characterCode /= 256;
+                            }
+                            textRange.write(charBytes);
                             to++;
                             textIndex++;
                         }
@@ -299,7 +309,7 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
     }
 
     public static void main(String[] args) throws IOException {
-        PDDocument document = Loader.loadPDF(new File("pdfSweep-whitepaper.pdf"));
+        PDDocument document = Loader.loadPDF(new File("5000 most common chinese characters.pdf"));
 
         PDFTextStripperByRegion stripper = new PDFTextStripperByRegion(document);
         for (int i = 0; i < document.getNumberOfPages(); i++) {
@@ -308,6 +318,6 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
         }
         stripper.getText(document);
 
-        document.save(new File("pdfSweep-whitepaper-redacted.pdf"));
+        document.save(new File("5000 most common chinese characters-redacted.pdf"));
     }
 }
