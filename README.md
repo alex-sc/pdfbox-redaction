@@ -12,3 +12,4 @@ PDF Redaction using PDFBox
 - vertical fonts
 - remove annotations / form fields?
 - remove related text operators for removed text blocks (state/positioning)
+- subset fonts?

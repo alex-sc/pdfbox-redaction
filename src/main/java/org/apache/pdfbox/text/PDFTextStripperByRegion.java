@@ -208,7 +208,7 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
                     TextPosition text = texts.get(textIndex);
                     if (matchesRegion(text)) {
                         // TODO: correct?
-                        offset -= (text.getWidth()) * 100f;
+                        offset -= text.getWidth() / text.getTextMatrix().getScalingFactorX() * 1000f;
                         from++;
                         textIndex++;
                     } else {
@@ -276,7 +276,7 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
             return;
         }
 
-        PDPageContentStream pageContentStream = new PDPageContentStream(this.document, page, PDPageContentStream.AppendMode.APPEND, true);
+        PDPageContentStream pageContentStream = new PDPageContentStream(this.document, page, PDPageContentStream.AppendMode.APPEND, true, true);
         pageContentStream.setStrokingColor(Color.RED);
         for (RectangleAndPage location : regions) {
             if (getCurrentPageNo() - 1 != location.page) {
@@ -314,7 +314,7 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
         PDFTextStripperByRegion stripper = new PDFTextStripperByRegion(document);
         for (int i = 0; i < document.getNumberOfPages(); i++) {
             PDPage page = document.getPage(i);
-            stripper.addRegion(i, new Rectangle2D.Float(100, 100, page.getMediaBox().getWidth() - 200, page.getMediaBox().getHeight() - 200));
+            stripper.addRegion(i, new Rectangle2D.Float(100, 100, page.getMediaBox().getWidth() - 400, page.getMediaBox().getHeight() - 400));
         }
         stripper.getText(document);
 
