@@ -35,6 +35,7 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
 
     private COSName intersectingImageName = null;
     private BufferedImage intersectingImage = null;
+    private boolean removeImage = false;
 
     // Debug
     private final List<RectangleAndPage> imageLocations = new ArrayList<>();
@@ -82,7 +83,7 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
         return false;
     }
 
-    protected void clearImage(Rectangle2D box, BufferedImage image) {
+    protected boolean clearImage(Rectangle2D box, BufferedImage image) {
         for (RectangleAndPage location : regions) {
             if (location.page != getCurrentPageNo() - 1) {
                 continue;
@@ -103,8 +104,12 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
 
                 Graphics2D graphics = image.createGraphics();
                 graphics.clearRect((int) ix, (int) iy, (int) iw, (int) ih);
+                if ((int) iw == image.getWidth() && (int) ih == image.getHeight()) {
+                    return true;
+                }
             }
         }
+        return false;
     }
 
     @Override
@@ -112,6 +117,7 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
         operatorText.clear();
         intersectingImageName = null;
         intersectingImage = null;
+        removeImage = false;
 
         super.nextOperation(operator, operands);
     }
@@ -168,6 +174,12 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
     }
 
     protected void patchDrawObjectImage(ContentStreamWriter contentStreamWriter, Operator operator, List<COSBase> operands) throws IOException {
+        if (removeImage) {
+            // TODO: image is used in multiple places
+            getResources().getCOSObject().removeItem(intersectingImageName);
+            return;
+        }
+
         PDImageXObject imageXObject = (PDImageXObject) getResources().getXObject(intersectingImageName);
         BufferedImage image = imageXObject.getImage();
 
@@ -261,7 +273,7 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
             BufferedImage image = xObject.getImage();
             intersectingImageName = name;
             intersectingImage = image.getSubimage(0, 0, image.getWidth(), image.getHeight());
-            clearImage(imageLocation, intersectingImage);
+            removeImage = clearImage(imageLocation, intersectingImage);
         }
         imageLocations.add(new RectangleAndPage(getCurrentPageNo() - 1, imageLocation));
     }
