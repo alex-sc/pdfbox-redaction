@@ -6,10 +6,10 @@ PDF Redaction using PDFBox
 - redact images (BeginInlineImage, ~~XObject~~)
 - - repack images using original format (PNG only right now)
 - ~~multibyte fonts~~
-- RTL?
+- remove annotations / form fields
 - page rotation
-- nested structures (XObject)
+- nested structures (XObject/~~PDFormXObject~~)
 - vertical fonts
-- remove annotations / form fields?
-- remove related text operators for removed text blocks (state/positioning)
 - subset fonts?
+- RTL?
+- remove related text operators for removed text blocks (state/positioning)

@@ -4,9 +4,7 @@ import java.awt.*;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.io.*;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
+import java.util.*;
 import java.util.List;
 
 import org.apache.pdfbox.Loader;
@@ -309,7 +307,7 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
     }
 
     public static void main(String[] args) throws IOException {
-        PDDocument document = Loader.loadPDF(new File("5000 most common chinese characters.pdf"));
+        PDDocument document = Loader.loadPDF(new File("pdfSweep-whitepaper-nup.pdf"));
 
         PDFTextStripperByRegion stripper = new PDFTextStripperByRegion(document);
         for (int i = 0; i < document.getNumberOfPages(); i++) {
@@ -318,6 +316,6 @@ public class PDFTextStripperByRegion extends PdfContentStreamEditor {
         }
         stripper.getText(document);
 
-        document.save(new File("5000 most common chinese characters-redacted.pdf"));
+        document.save(new File("pdfSweep-whitepaper-nup-redacted.pdf"));
     }
 }

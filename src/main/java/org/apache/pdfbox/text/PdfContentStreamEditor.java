@@ -9,9 +9,10 @@ import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.common.PDStream;
 import org.apache.pdfbox.pdmodel.graphics.form.PDFormXObject;
 
-import java.io.IOException;
-import java.io.OutputStream;
+import java.io.*;
 import java.util.List;
+import java.util.Stack;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * <a href="https://stackoverflow.com/questions/58475104/filter-out-all-text-above-a-certain-font-size-from-pdf">
@@ -33,11 +34,13 @@ import java.util.List;
 public class PdfContentStreamEditor extends PDFTextStripper {
 
     private final PDDocument document;
-    private ContentStreamWriter replacement = null;
-    private boolean inOperator = false;
+
+    private final Stack<ContentStreamWriter> replacement = new Stack<>();
+    private final Stack<AtomicBoolean> inOperator = new Stack<>();
 
     public PdfContentStreamEditor(PDDocument document) {
         this.document = document;
+        inOperator.add(new AtomicBoolean(false));
     }
 
     /**
@@ -74,31 +77,43 @@ public class PdfContentStreamEditor extends PDFTextStripper {
     @Override
     public void processPage(PDPage page) throws IOException {
         PDStream stream = new PDStream(document);
-        OutputStream replacementStream;
-        replacement = new ContentStreamWriter(replacementStream = stream.createOutputStream(COSName.FLATE_DECODE));
+        OutputStream replacementStream = stream.createOutputStream(COSName.FLATE_DECODE);
+        replacement.push(new ContentStreamWriter(replacementStream));
+
         super.processPage(page);
-        replacementStream.close();
         page.setContents(stream);
-        replacement = null;
+
+        replacementStream.close();
+        replacement.pop();
     }
 
-    // PDFStreamEngine overrides to allow editing
     @Override
     public void showForm(PDFormXObject form) throws IOException {
-        // DON'T descend into XObjects
-        // super.showForm(form);
+        ByteArrayOutputStream replacementStream = new ByteArrayOutputStream();
+        replacement.push(new ContentStreamWriter(replacementStream));
+        inOperator.push(new AtomicBoolean(false));
+
+        super.showForm(form);
+
+        OutputStream outputStream = form.getContentStream().createOutputStream(COSName.FLATE_DECODE);
+        outputStream.write(replacementStream.toByteArray());
+        outputStream.close();
+
+        replacement.pop();
+        inOperator.pop();
     }
 
     @Override
     protected void processOperator(Operator operator, List<COSBase> operands) throws IOException {
-        if (inOperator) {
+        if (inOperator.peek().get()) {
             super.processOperator(operator, operands);
         } else {
-            inOperator = true;
+            inOperator.peek().set(true);
             nextOperation(operator, operands);
             super.processOperator(operator, operands);
-            write(replacement, operator, operands);
-            inOperator = false;
+
+            write(replacement.peek(), operator, operands);
+            inOperator.peek().set(false);
         }
     }
 }
